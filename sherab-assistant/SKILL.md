@@ -63,7 +63,7 @@ This skill requires web search capability to retrieve real discussions and sourc
 
 Use this skill when:
 
-- The question is related to Open edX, Sherab, or Webuddhist course (even if Open edX is not explicitly mentioned, and even if the user refers to the platform as Sherab or Webuddhist)
+- The question is related to Sherab, Webuddhist, or Open edX (even if the user refers to the platform as Sherab or Webuddhist)
 
 ### For Developers
 
@@ -96,7 +96,7 @@ Use this skill when:
 
 ## Instructions
 
-1. Understand the user's question clearly (including cases where the user refers to Sherab or Webuddhist course instead of Open edX)
+1. Understand the user's question clearly and identify what the user calls the platform (for example: Sherab, Webuddhist, or Open edX)
 2. Search for relevant discussions on:
    [https://discuss.openedx.org/](https://discuss.openedx.org/)
 3. If sufficient results are NOT found, optionally search:
@@ -106,20 +106,19 @@ Use this skill when:
 5. Extract the best answers:
    - Prefer accepted or most upvoted replies
    - Ignore outdated or incorrect responses
-6. Summarize the answer clearly
+6. Summarize the answer clearly using the same product/platform name the user used; do not default to "Open edX" unless the user used that exact term
 7. Include source links
 
 ---
 
 ## Output Format
 
-Respond using the following structure:
-
 ### Answer
 
 - Provide a **clear and detailed explanation in simple terms**.
 - Explain **what is happening, why it happens, and what it means**.
 - Avoid jargon, or explain it in plain language.
+- Use the same platform name the user used throughout the answer text, steps, summary, and source notes.
 
 ### Steps (if applicable)
 
@@ -158,9 +157,11 @@ Respond using the following structure:
   - Do NOT call it "Open edX" or "Open edX Studio" if the user used a different name
   - Do NOT use formats like "Sherab (Open edX)" or "Webuddist (Open edX)" - just use the name the user used
   - Mirror the user's language to maintain consistency and clarity
+- This applies to the entire response, including explanations, UI labels, summaries, fallback text, and examples
+- If a source uses "Open edX" but the user said "Sherab" or "Webuddhist", explain it using the user's term while keeping the original source title/link unchanged
 - DO NOT hallucinate answers
 - If no reliable information is found, say:
-  "I couldn't find a reliable answer from Open edX discussions."
+  "I couldn't find a reliable answer from the available discussions."
 - Always include at least one source when giving an answer
 - Prefer multiple sources if available
 - Keep answers concise but useful
@@ -180,15 +181,15 @@ How do I install a custom Django plugin in Tutor?
 
 ### Answer
 
-Installing a custom Django plugin in Tutor means adding your own backend feature (like wishlist, APIs, etc.) into the Open edX LMS.
+Installing a custom Django plugin in Tutor means adding your own backend feature (like wishlist, APIs, etc.) into your platform's LMS.
 
-In simple terms, Tutor runs Open edX inside Docker containers. So your plugin must be "attached" to these containers in a way that Open edX can recognize it.
+In simple terms, Tutor runs your platform inside Docker containers. So your plugin must be "attached" to these containers in a way that the platform can recognize it.
 
 This is done by creating a Tutor plugin, which tells Tutor:
 
 - where your code is
 - how to include it in the build
-- and how Open edX should load it
+- and how the platform should load it
 
 If you skip this step and just add code manually, it won't persist after rebuilds.
 
@@ -196,17 +197,17 @@ If you skip this step and just add code manually, it won't persist after rebuild
 
 - Create a Tutor plugin structure (using a Python package or plugin folder)
 - Add your Django app inside the plugin
-- Register the app in Open edX settings (e.g., add to INSTALLED\_APPS)
+- Register the app in platform settings (e.g., add to INSTALLED\_APPS)
 - Enable the plugin:
   tutor plugins enable \<plugin\_name>
-- Rebuild Open edX image so your code is included:
+- Rebuild the platform image so your code is included:
   tutor images build openedx
 - Restart services:
   tutor local restart
 
 ### Summary
 
-You install a custom Django plugin in Tutor by wrapping your app as a Tutor plugin, enabling it, and rebuilding Open edX so it becomes part of the running system.
+You install a custom Django plugin in Tutor by wrapping your app as a Tutor plugin, enabling it, and rebuilding the platform image so it becomes part of the running system.
 
 ### Sources
 
