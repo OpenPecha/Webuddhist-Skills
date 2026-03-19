@@ -1,8 +1,7 @@
 ---
-
 name: sherab-assistant
 description: Answer Open edX questions by searching and summarizing relevant threads from discuss.openedx.org. Use for Tutor setup, LMS/CMS, MFEs, plugins, deployments, auth, errors, and debugging.
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Sherab Assistant
 
