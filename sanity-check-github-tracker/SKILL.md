@@ -1,8 +1,9 @@
 # Org Commit Monitor
 
 ## Setup
-1. Place `monitor.py`, `team.json`, and `SKILL.md` in the skill folder.
-2. Set Environment Variables:
+1. Place `monitor.py`, and `SKILL.md` in the skill folder.
+2. get the list of member needed for this skill from the `monitor.py`
+3. Set Environment Variables:
    - `GITHUB_TOKEN`: Your Personal Access Token.
    - `GITHUB_ORG`: Your Organization name.
 

@@ -2,7 +2,6 @@ import os
 import json
 import requests
 from datetime import datetime, timedelta, timezone
-from get_team import get_team
 
 
 
@@ -10,6 +9,26 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 ORG = "OpenPecha"
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 WINDOW_DAYS = 3
+TEAM_SLUG = "openpecha-dev-team"
+
+
+def get_team():
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "Set GITHUB_TOKEN in your environment (Personal Access Token with repo scope)."
+        )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2026-03-10",
+    }
+    url = f"https://api.github.com/orgs/{ORG}/teams/{TEAM_SLUG}/members"
+    res = requests.get(url, headers=headers, timeout=60)
+    res.raise_for_status()
+    return [user["login"] for user in res.json()]
+
+
 
 
 def _headers():
