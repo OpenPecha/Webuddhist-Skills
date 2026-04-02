@@ -14,12 +14,11 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, TaskCreate
 
 1. **Analysis** — Build knowledge model: discover APIs, components, structure, documentation gaps
 2. **Plan** — Generate detailed documentation plan with priorities and outline
-3. **Approval Gate** — Present plan for explicit user approval before writing
-4. **Execute** — Write documentation following anti-hallucination protocols
+3. **Execute** — Write documentation immediately after planning, following anti-hallucination protocols
 
 **Key Rules:**
 
-- Never proceed without explicit user approval of the documentation plan
+- Proceed directly to execution after generating the plan — do NOT wait for user approval
 - Verify every documented feature against actual code (no assumptions)
 - For business feature docs, use `feature-docs` skill instead
 - Include practical examples and copy-pasteable code snippets
@@ -46,15 +45,17 @@ When the user asks to generate READMEs across the OpenPecha GitHub organization,
 - **Output Filename:** `openclaw_documentation_README.md` (never overwrite the original `README.md`)
 - **Commit Message:** `docs: automated readme generation via Open Claw (TGDP Template)`
 - **Auth:** Requires a GitHub PAT with `repo` and `read:org` scopes — prompt the user if not set.
+- **Schedule:** Run automatically **once per month** (on the 1st). Always overwrite the existing `openclaw_documentation_README.md` with the freshly generated version — do not create a new file or append.
 
 ---
 
 ### OPENPECHA PHASE 1: Discovery
 
-1. Fetch all repositories from the OpenPecha GitHub organization via the GitHub API.
+1. Fetch **all** repositories from the OpenPecha GitHub organization via the GitHub API: `https://api.github.com/orgs/OpenPecha/repos?per_page=100&page=1` — paginate through all pages until exhausted.
 2. **Skip** archived repositories unless the user explicitly requests them.
-3. Build a queue of active repos to process.
+3. Build a complete queue of all active repos before starting any analysis.
 4. Use exponential backoff if GitHub API rate limits are hit (start at 1s, double each retry, max 5 retries).
+5. **Do not pause or ask for confirmation** — process every repo in the queue automatically from start to finish.
 
 ---
 
@@ -90,11 +91,14 @@ For each repo, generate `openclaw_documentation_README.md` using the **README St
 
 ### OPENPECHA PHASE 4: Deployment
 
-For each repo:
-1. Create or update `{repo_root}/openclaw_documentation_README.md`
-2. **Never** touch or overwrite the original `README.md`
-3. Commit with message: `docs: automated readme generation via Open Claw (TGDP Template)`
-4. Report a summary of repos processed, skipped (archived), and any flagged `[Needs Manual Review]`
+For each repo, execute immediately without pausing:
+1. **Always overwrite** `{repo_root}/openclaw_documentation_README.md` with the freshly generated content — whether the file already exists or not.
+2. **Never** touch or overwrite the original `README.md`.
+3. Commit with message: `docs: automated readme generation via Open Claw (TGDP Template)`.
+4. Move on to the next repo in the queue automatically.
+5. After all repos are processed, output a final summary table: repos processed, skipped (archived), and any flagged `[Needs Manual Review]`.
+
+**This entire workflow runs on a monthly schedule (1st of each month).** Each run regenerates all READMEs from scratch based on the current state of each repository.
 
 ---
 
@@ -274,15 +278,9 @@ For README plans, generate a detailed outline covering: Project Overview, Instal
 
 ---
 
-## PHASE 3: APPROVAL GATE
+## PHASE 3: DOCUMENTATION EXECUTION
 
-**CRITICAL**: Present documentation plan for explicit approval. **DO NOT** proceed without it.
-
----
-
-## PHASE 4: DOCUMENTATION EXECUTION
-
-Once approved, execute the plan using all DOCUMENTATION_SAFEGUARDS.
+Execute the plan immediately using all DOCUMENTATION_SAFEGUARDS. Do **not** pause for approval.
 
 ---
 
