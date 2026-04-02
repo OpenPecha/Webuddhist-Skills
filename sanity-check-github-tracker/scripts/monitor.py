@@ -4,42 +4,31 @@ import requests
 from datetime import datetime, timedelta, timezone
 
 
-
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 ORG = "OpenPecha"
-HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 WINDOW_DAYS = 3
 TEAM_SLUG = "openpecha-dev-team"
+_ISO_TZ_OFFSET = "+00:00"
 
 
-def get_team():
+def _api_headers():
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         raise RuntimeError(
             "Set GITHUB_TOKEN in your environment (Personal Access Token with repo scope)."
         )
-    headers = {
+    return {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2026-03-10",
     }
+
+
+def get_team():
+    headers = _api_headers()
     url = f"https://api.github.com/orgs/{ORG}/teams/{TEAM_SLUG}/members"
     res = requests.get(url, headers=headers, timeout=60)
     res.raise_for_status()
     return [user["login"] for user in res.json()]
-
-
-
-
-def _headers():
-    if not GITHUB_TOKEN:
-        raise RuntimeError(
-            "Set GITHUB_TOKEN in your environment (Personal Access Token with repo scope)."
-        )
-    return {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-    }
 
 
 def load_data(file, default):
@@ -57,7 +46,7 @@ def commit_window_bounds():
     """
     Last WINDOW_DAYS calendar days in UTC, excluding the day of execution.
     Returns (start_date, end_date_exclusive) as date objects,
-    and a range string for the GitHub committer-date qualifier.
+    and a range string for display (same as former GitHub committer-date search).
     """
     today = _utc_today_date()
     end = today  # exclusive upper bound (today is not included)
@@ -67,57 +56,176 @@ def commit_window_bounds():
     return start, end, date_range
 
 
-def fetch_user_commit_search_raw(username, date_range):
-    """
-    Paginate GET /search/commits for commits in the given date_range
-    (inclusive GitHub range syntax YYYY-MM-DD..YYYY-MM-DD) and return
-    the list of raw JSON bodies (one dict per HTTP response, unchanged).
-    """
-    q = f"org:{ORG} author:{username} committer-date:{date_range}"
-    raw_pages = []
+def _window_to_since_until_iso(window_start, window_end_exclusive):
+    """ISO timestamps for GET /repos/.../commits (since / until)."""
+    since_dt = datetime(
+        window_start.year,
+        window_start.month,
+        window_start.day,
+        0,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    until_dt = datetime(
+        window_end_exclusive.year,
+        window_end_exclusive.month,
+        window_end_exclusive.day,
+        0,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    return (
+        since_dt.isoformat().replace(_ISO_TZ_OFFSET, "Z"),
+        until_dt.isoformat().replace(_ISO_TZ_OFFSET, "Z"),
+    )
+
+
+def _get_json_allow_missing(url, headers, params=None):
+    """GET JSON; return None on 403/404 so one repo cannot stop the run."""
+    r = requests.get(url, headers=headers, params=params or {}, timeout=60)
+    if r.status_code in (403, 404):
+        return None
+    r.raise_for_status()
+    return r.json()
+
+
+def _iter_org_repos(headers):
     page = 1
     while True:
-        response = requests.get(
-            "https://api.github.com/search/commits",
-            headers=_headers(),
-            params={"q": q, "per_page": 100, "page": page},
-            timeout=60,
+        data = _get_json_allow_missing(
+            f"https://api.github.com/orgs/{ORG}/repos",
+            headers,
+            {"per_page": 100, "page": page, "type": "all"},
         )
-        data = response.json()
-        if response.status_code == 422 and "first 1000" in data.get("message", ""):
+        if not data:
             break
-        if response.status_code != 200:
-            err = data.get("message", response.text)
-            raise RuntimeError(
-                f"GitHub API error ({response.status_code}) for {username}: {err}"
-            )
-        raw_pages.append(data)
-        batch = data.get("items") or []
-        total_count = data.get("total_count", 0)
-        total_fetched = sum(len(p.get("items") or []) for p in raw_pages)
-        if len(batch) < 100 or total_fetched >= total_count:
+        yield from data
+        if len(data) < 100:
             break
         page += 1
-    return raw_pages
 
 
-def _commit_days_from_raw_pages(raw_pages, window_start, window_end_exclusive):
-    """UTC calendar dates (YYYY-MM-DD) that appear as committer dates in search items."""
+def _iter_repo_branches(headers, owner, repo):
+    page = 1
+    while True:
+        data = _get_json_allow_missing(
+            f"https://api.github.com/repos/{owner}/{repo}/branches",
+            headers,
+            {"per_page": 100, "page": page},
+        )
+        if not data:
+            break
+        yield from data
+        if len(data) < 100:
+            break
+        page += 1
+
+
+def _committer_date(commit_obj):
+    commit = commit_obj.get("commit") or {}
+    committer = commit.get("committer") or {}
+    raw = committer.get("date")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", _ISO_TZ_OFFSET)).date()
+    except ValueError:
+        return None
+
+
+def _paginate_commits_for_branch(
+    headers, owner, repo, branch_name, author, since_iso, until_iso
+):
+    """
+    Newest-first commits reachable from branch_name, filtered by author and dates.
+    Stops early once the page is entirely before the window (descending order).
+    """
+    page = 1
+    while True:
+        batch = _get_json_allow_missing(
+            f"https://api.github.com/repos/{owner}/{repo}/commits",
+            headers,
+            {
+                "sha": branch_name,
+                "author": author,
+                "since": since_iso,
+                "until": until_iso,
+                "per_page": 100,
+                "page": page,
+            },
+        )
+        if not batch:
+            break
+        yield from batch
+        if len(batch) < 100:
+            break
+        oldest = _committer_date(batch[-1])
+        if oldest is not None:
+            window_start = datetime.fromisoformat(
+                since_iso.replace("Z", _ISO_TZ_OFFSET)
+            ).date()
+            if oldest < window_start:
+                break
+        page += 1
+
+
+def fetch_user_commit_days_all_branches(username, window_start, window_end_exclusive):
+    """
+    GitHub /search/commits only indexes the default branch. To count activity on
+    any branch, list commits per branch with author + since/until and dedupe by SHA.
+
+    Returns (days_with_commits_iso_set, meta_dict).
+    """
+    headers = _api_headers()
+    since_iso, until_iso = _window_to_since_until_iso(
+        window_start, window_end_exclusive
+    )
+    seen_shas = set()
     days = set()
-    for page in raw_pages:
-        for item in page.get("items") or []:
-            commit = item.get("commit") or {}
-            committer = commit.get("committer") or {}
-            raw = committer.get("date")
-            if not raw:
+    repos_scanned = 0
+    branch_requests = 0
+    skipped_repos = 0
+
+    for repo in _iter_org_repos(headers):
+        full = repo.get("full_name") or ""
+        if "/" not in full:
+            continue
+        owner, name = full.split("/", 1)
+        repos_scanned += 1
+        branches = list(_iter_repo_branches(headers, owner, name))
+        if not branches:
+            skipped_repos += 1
+            continue
+        for br in branches:
+            branch_name = br.get("name")
+            if not branch_name:
                 continue
-            try:
-                d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-            except ValueError:
-                continue
-            if window_start <= d < window_end_exclusive:
-                days.add(d.isoformat())
-    return days
+            branch_requests += 1
+            for commit_obj in _paginate_commits_for_branch(
+                headers, owner, name, branch_name, username, since_iso, until_iso
+            ):
+                sha = commit_obj.get("sha")
+                if not sha or sha in seen_shas:
+                    continue
+                seen_shas.add(sha)
+                d = _committer_date(commit_obj)
+                if d is None:
+                    continue
+                if window_start <= d < window_end_exclusive:
+                    days.add(d.isoformat())
+
+    meta = {
+        "mode": "all_branches",
+        "repos_scanned": repos_scanned,
+        "branch_requests": branch_requests,
+        "unique_commits_in_window": len(seen_shas),
+        "repos_with_no_branches": skipped_repos,
+        "since": since_iso,
+        "until": until_iso,
+    }
+    return days, meta
 
 
 def _apply_skip_credits(state_user, skip_dates_iso):
@@ -144,12 +252,13 @@ def run_monitor():
         (start_d + timedelta(days=i)).isoformat() for i in range(WINDOW_DAYS)
     ]
     lines = [
-        f"Window (UTC): {date_range} (exclusive of today, {WINDOW_DAYS} days)"
+        f"Window (UTC): {date_range} (exclusive of today, {WINDOW_DAYS} days); "
+        f"commits from all branches (not search API)"
     ]
     for user in members:
-        raw_pages = fetch_user_commit_search_raw(user, date_range)
-        first = raw_pages[0] if raw_pages else {}
-        commit_count = first.get("total_count", 0)
+        days_with_commits, fetch_meta = fetch_user_commit_days_all_branches(
+            user, start_d, end_d
+        )
 
         if user not in state:
             state[user] = {"total_skips": 0, "skip_credited_dates": []}
@@ -158,19 +267,18 @@ def run_monitor():
             su.setdefault("skip_credited_dates", [])
             su.setdefault("total_skips", 0)
 
-        days_with_commits = _commit_days_from_raw_pages(
-            raw_pages, start_d, end_d
-        )
         skip_dates = [d for d in window_dates if d not in days_with_commits]
         window_skip_days = len(skip_dates)
         newly_credited = _apply_skip_credits(state[user], skip_dates)
 
-        state[user]["search_responses"] = raw_pages
+        state[user]["fetch_meta"] = fetch_meta
         state[user]["window_skip_days"] = window_skip_days
         state[user]["window_dates"] = window_dates
         state[user]["days_with_commits_in_window"] = sorted(days_with_commits)
         lines.append(
-            f"{user}: {len(raw_pages)} page(s), total_count={commit_count}, "
+            f"{user}: repos={fetch_meta['repos_scanned']}, "
+            f"branch_requests={fetch_meta['branch_requests']}, "
+            f"unique_commits={fetch_meta['unique_commits_in_window']}, "
             f"window_skip_days={window_skip_days}, +total_skips={newly_credited}, "
             f"total_skips={state[user]['total_skips']}"
         )
@@ -183,7 +291,3 @@ def run_monitor():
 
 if __name__ == "__main__":
     print(run_monitor())
-
-
-
-
