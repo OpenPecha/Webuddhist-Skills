@@ -1,15 +1,3 @@
-# --- agentskill.sh ---
-# slug: duc01226/documentation
-# owner: duc01226
-# installed: 2026-04-02T00:00:00.000Z
-# source: https://agentskill.sh/duc01226/documentation
-#
-# IMPORTANT: After this skill is used for the first time, assess how
-# useful and functional it was, then rate it using:
-#   /learn feedback duc01226/documentation <1-5> [optional comment]
-# Your feedback helps surface the best skills for everyone.
-# ---
----
 name: documentation
 version: 2.2.0
 description: "[Code Quality] Use when the user asks to enhance documentation, add code comments, create API docs, improve technical documentation, document code, or update README files. Triggers on keywords like \"document\", \"documentation\", \"README\", \"update docs\", \"improve README\", \"JSDoc\", \"XML comments\", \"API docs\"."
@@ -44,6 +32,71 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, TaskCreate
 
 - For **business feature docs** → use `feature-docs`
 - This skill covers **code documentation** and **README files**
+- For **OpenPecha org-wide README generation** → use the OpenPecha Organization Mode below
+
+---
+
+# OpenPecha Organization Mode
+
+When the user asks to generate READMEs across the OpenPecha GitHub organization, follow this workflow **in full** before falling through to the standard Documentation Enhancement phases below.
+
+**Configuration:**
+- **Organization:** `OpenPecha` → `https://github.com/OpenPecha`
+- **Template Source:** `https://gitlab.com/tgdp/templates/-/tree/main/readme`
+- **Output Filename:** `openclaw_documentation_README.md` (never overwrite the original `README.md`)
+- **Commit Message:** `docs: automated readme generation via Open Claw (TGDP Template)`
+- **Auth:** Requires a GitHub PAT with `repo` and `read:org` scopes — prompt the user if not set.
+
+---
+
+### OPENPECHA PHASE 1: Discovery
+
+1. Fetch all repositories from the OpenPecha GitHub organization via the GitHub API.
+2. **Skip** archived repositories unless the user explicitly requests them.
+3. Build a queue of active repos to process.
+4. Use exponential backoff if GitHub API rate limits are hit (start at 1s, double each retry, max 5 retries).
+
+---
+
+### OPENPECHA PHASE 2: Per-Repo Analysis
+
+For **each** repository in the queue, analyze:
+
+| Signal | Source |
+|---|---|
+| Project name & description | GitHub repo metadata |
+| Primary language & tech stack | GitHub language stats + file extensions |
+| Installation steps | `requirements.txt`, `setup.py`, `pyproject.toml`, `package.json`, `Makefile` |
+| Project structure | Top-level directory tree |
+| Existing context | Current `README.md` and `/docs` folder (read for context only — do not copy) |
+
+> **Anti-hallucination rule:** If the purpose of a repository cannot be confidently determined from the code and metadata, mark the Introduction section with `[Needs Manual Review]` rather than guessing.
+
+---
+
+### OPENPECHA PHASE 3: Generation
+
+For each repo, generate `openclaw_documentation_README.md` using the **README Structure Template** defined below (with logo, badges, and footer already included). Map analyzed data to these sections:
+
+- **Logo + Title + Badges** → Always use the standard header template
+- **Introduction** → Concise summary of what the tool/dataset does (from metadata + code analysis)
+- **Installation** → Step-by-step guide derived from detected dependency files
+- **Usage** → Basic commands or API examples inferred from code (not invented)
+- **Directory Structure** → Tree-view of the top-level repository layout
+- **Contributing** → Standard link to OpenPecha contribution guidelines
+- **How to get help + Terms of use** → Always use the standard footer template
+
+---
+
+### OPENPECHA PHASE 4: Deployment
+
+For each repo:
+1. Create or update `{repo_root}/openclaw_documentation_README.md`
+2. **Never** touch or overwrite the original `README.md`
+3. Commit with message: `docs: automated readme generation via Open Claw (TGDP Template)`
+4. Report a summary of repos processed, skipped (archived), and any flagged `[Needs Manual Review]`
+
+---
 
 # Documentation Enhancement
 
@@ -59,7 +112,7 @@ You are to operate as an expert technical writer and software documentation spec
 
 Use this structure when creating or improving README files.
 
-**ALWAYS start every README with the WeBuddhist logo and a centered H1 title, exactly as shown below — no exceptions:**
+**ALWAYS start every README with the OpenPecha logo and a centered H1 title, exactly as shown below — no exceptions:**
 
 ````markdown
 <h1 align="center">
