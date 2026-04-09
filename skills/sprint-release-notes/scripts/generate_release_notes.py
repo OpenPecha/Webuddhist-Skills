@@ -605,11 +605,26 @@ def generate_executive_summary(features, infra, bugs, carried_over):
 
 
 def summarize_item(details):
+    # Strip images and markdown image syntax
     desc = details.get("description", "")
-    if desc and len(desc) > 20:
-        first_sentence = desc.split(".")[0].strip()
-        if len(first_sentence) > 15:
-            return first_sentence + "."
+    if desc:
+        # Remove markdown images ![alt](url)
+        import re
+        desc = re.sub(r'!\[.*?\]\(.*?\)', '', desc)
+        # Remove raw image URLs
+        desc = re.sub(r'https?://[^\s]+\.(jpg|jpeg|png|gif|webp)', '', desc, flags=re.IGNORECASE)
+        # Remove img tags
+        desc = re.sub(r'<img[^>]*>', '', desc)
+        # Get first sentence, ensure it's complete
+        sentences = desc.split('.')
+        first_sentence = sentences[0].strip() if sentences else ""
+        # If sentence is too short or empty, use title
+        if len(first_sentence) < 15:
+            return details["title"]
+        # Ensure it ends with period
+        if not first_sentence.endswith('.'):
+            first_sentence += '.'
+        return first_sentence
     return details["title"]
 
 
@@ -648,23 +663,27 @@ def publish_release_notes_per_repo(client, items_by_repo, sprint_title, release_
         try:
             repo_info = client.rest_get(f"/repos/{repo_name}") or {}
             default_branch = repo_info.get("default_branch", "main")
+            
+            # Check if release already exists
+            existing = client.rest_get(f"/repos/{repo_name}/releases/tags/{tag_name}")
+            if existing and existing.get("id"):
+                existing_date = existing.get("created_at", "")
+                print(f" ⚠️ Release {tag_name} already exists (created: {existing_date[:10] if existing_date else 'unknown'})")
+                published_links.append((repo_name, existing.get("html_url", "")))
+                continue
+            
             payload = {
                 "name": tag_name,
                 "body": repo_notes,
                 "draft": False,
                 "prerelease": False,
             }
-            existing = client.rest_get(f"/repos/{repo_name}/releases/tags/{tag_name}")
-            if existing and existing.get("id"):
-                rid = existing["id"]
-                result = client.rest_patch(f"/repos/{repo_name}/releases/{rid}", payload)
-            else:
-                create = {
-                    "tag_name": tag_name,
-                    "target_commitish": default_branch,
-                    **payload,
-                }
-                result = client.rest_post(f"/repos/{repo_name}/releases", create)
+            create = {
+                "tag_name": tag_name,
+                "target_commitish": default_branch,
+                **payload,
+            }
+            result = client.rest_post(f"/repos/{repo_name}/releases", create)
             release_url = result.get("html_url", "")
             print(f" ✅ Published release to {repo_name}! {release_url}")
             published_links.append((repo_name, release_url))
@@ -675,6 +694,21 @@ def publish_release_notes_per_repo(client, items_by_repo, sprint_title, release_
 
 def generate_repo_release_notes(sprint_title, sprint_number, today, completed_items, repo_name):
     """Generate release notes for a single repository."""
+    import re
+    
+    def strip_images(text):
+        if not text:
+            return ""
+        # Remove markdown images
+        text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+        # Remove raw image URLs
+        text = re.sub(r'https?://[^\s]+\.(jpg|jpeg|png|gif|webp)', '', text, flags=re.IGNORECASE)
+        # Remove img tags
+        text = re.sub(r'<img[^>]*>', '', text)
+        # Clean up extra whitespace
+        text = re.sub(r'\n\n+', '\n', text)
+        return text.strip()
+    
     lines = [
         f"# 🚀 Sprint Release Notes: {sprint_title} - {repo_name.split('/')[-1]}",
         f"""
@@ -696,7 +730,18 @@ This sprint delivered **{len(completed_items)}** item(s) in **{repo_name}**.
     for item in completed_items:
         category = item.get("category", "other")
         title = item.get("title", "Untitled")
-        desc = item.get("description", "")[:200]
+        # Strip images from description and ensure complete sentences
+        raw_desc = item.get("description", "") or ""
+        desc = strip_images(raw_desc)
+        # Truncate but ensure we don't cut mid-sentence
+        if len(desc) > 200:
+            # Find last period within 200 chars
+            last_period = desc[:200].rfind('.')
+            if last_period > 50:
+                desc = desc[:last_period+1]
+            else:
+                desc = desc[:200]
+        
         if category == "feature":
             features.append((title, desc))
         elif category == "infra":
@@ -712,6 +757,14 @@ This sprint delivered **{len(completed_items)}** item(s) in **{repo_name}**.
             lines.append(f"* **{title}**: {desc}")
     
     if infra:
+        lines.append("\n## 🛠️ Infrastructure & Tech Debt\n")
+        for title, desc in infra:
+            lines.append(f"* **{title}**: {desc}")
+    
+    if bugs:
+        lines.append("\n## 🐛 Bug Fixes\n")
+        for title, desc in bugs:
+            lines.append(f"* **{title}**: {desc}")
         lines.append("\n## 🛠️ Infrastructure & Tech Debt\n")
         for title, desc in infra:
             lines.append(f"* **{title}**: {desc}")
