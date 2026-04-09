@@ -2,7 +2,7 @@
 """
 Sprint Release Notes Generator
 Reads a GitHub Project Board (v2), analyzes the current sprint,
-gathers documentation, scores contributors, and publishes release notes.
+gathers documentation, scores contributors, and publishes release notes as GitHub Releases.
 
 Usage:
  python generate_release_notes.py \
@@ -104,6 +104,20 @@ class GitHubClient:
         """PUT request to REST API."""
         url = f"{REST_BASE}{path}" if path.startswith("/") else path
         resp = requests.put(url, headers=self.rest_headers, json=data)
+        resp.raise_for_status()
+        return resp.json()
+
+    def rest_post(self, path, data):
+        """POST request to REST API."""
+        url = f"{REST_BASE}{path}" if path.startswith("/") else path
+        resp = requests.post(url, headers=self.rest_headers, json=data)
+        resp.raise_for_status()
+        return resp.json()
+
+    def rest_patch(self, path, data):
+        """PATCH request to REST API."""
+        url = f"{REST_BASE}{path}" if path.startswith("/") else path
+        resp = requests.patch(url, headers=self.rest_headers, json=data)
         resp.raise_for_status()
         return resp.json()
 
@@ -615,51 +629,47 @@ def infer_value(details):
 # ─────────────────────────────────────────────
 
 def publish_release_notes_per_repo(client, items_by_repo, sprint_title, release_notes_template, dry_run=False):
-    """Commit release notes markdown to each respective repo's docs/sprint-release-notes/ folder."""
+    """Create or update a GitHub Release per repo; markdown is the release body (tag v1.{sprint}.0)."""
     sprint_number = extract_sprint_number(sprint_title)
     today = datetime.now().strftime("%Y-%m-%d")
     published_links = []
-    
+    tag_name = f"v1.{sprint_number}.0"
+
     for repo_name, completed_items in items_by_repo.items():
         if not repo_name or not completed_items:
             continue
-        print(f"\n📤 Publishing to {repo_name}...")
-        # Generate repo-specific release notes
+        print(f"\n📤 Publishing release {tag_name} to {repo_name}...")
         repo_notes = generate_repo_release_notes(sprint_title, sprint_number, today, completed_items, repo_name)
-        filename = f"docs/sprint-release-notes/sprint-{sprint_number}-{repo_name.split('/')[-1]}.md"
-        
+
         if dry_run:
             print(f" 🔵 DRY RUN — skipping publish to {repo_name}")
             continue
-            
-        encoded = base64.b64encode(repo_notes.encode("utf-8")).decode("utf-8")
-        existing = client.rest_get(f"/repos/{repo_name}/contents/{filename}")
-        put_data = {
-            "message": f"docs: Sprint {sprint_number} release notes - {repo_name}",
-            "content": encoded,
-            "branch": "main"
-        }
-        if existing and "sha" in existing:
-            put_data["sha"] = existing["sha"]
+
         try:
-            result = client.rest_put(f"/repos/{repo_name}/contents/{filename}", put_data)
-            file_url = result.get("content", {}).get("html_url", f"https://github.com/{repo_name}/blob/main/{filename}")
-            print(f" ✅ Published to {repo_name}! {file_url}")
-            published_links.append((repo_name, file_url))
+            repo_info = client.rest_get(f"/repos/{repo_name}") or {}
+            default_branch = repo_info.get("default_branch", "main")
+            payload = {
+                "name": tag_name,
+                "body": repo_notes,
+                "draft": False,
+                "prerelease": False,
+            }
+            existing = client.rest_get(f"/repos/{repo_name}/releases/tags/{tag_name}")
+            if existing and existing.get("id"):
+                rid = existing["id"]
+                result = client.rest_patch(f"/repos/{repo_name}/releases/{rid}", payload)
+            else:
+                create = {
+                    "tag_name": tag_name,
+                    "target_commitish": default_branch,
+                    **payload,
+                }
+                result = client.rest_post(f"/repos/{repo_name}/releases", create)
+            release_url = result.get("html_url", "")
+            print(f" ✅ Published release to {repo_name}! {release_url}")
+            published_links.append((repo_name, release_url))
         except Exception as e:
-            print(f" ⚠️ Failed to publish to {repo_name}: {e}")
-            # Try default branch
-            try:
-                repo_info = client.rest_get(f"/repos/{repo_name}")
-                if repo_info:
-                    default_branch = repo_info.get("default_branch", "main")
-                    put_data["branch"] = default_branch
-                    result = client.rest_put(f"/repos/{repo_name}/contents/{filename}", put_data)
-                    file_url = result.get("content", {}).get("html_url", "")
-                    print(f" ✅ Published to {default_branch}! {file_url}")
-                    published_links.append((repo_name, file_url))
-            except Exception as e2:
-                print(f" ❌ Failed: {e2}")
+            print(f" ❌ Failed to publish release to {repo_name}: {e}")
     return published_links
 
 
@@ -805,7 +815,7 @@ def main():
             if repo:
                 items_by_repo[repo].append(details)
         
-        # Publish to each repo's docs folder
+        # Publish to each repo's Releases (create or PATCH by tag)
         published_links = publish_release_notes_per_repo(
             client, items_by_repo, sprint["title"], release_notes
         )

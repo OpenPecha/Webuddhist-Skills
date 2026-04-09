@@ -3,8 +3,9 @@ name: sprint-release-notes
 description: >
  Automatically generate sprint release notes from a GitHub Project Board and publish
  to their respective repositories. Groups completed items by repository, generates
- per-repo markdown files, pushes to each repo's docs/sprint-release-notes/ folder,
- and optionally posts a summary comment to a designated issue.
+ per-repo markdown, and publishes it as each repo's GitHub Release description (create
+ or update by tag), not as committed files under docs/. Optionally posts a summary
+ comment to a designated issue.
  Use this skill whenever the user mentions sprint release notes, sprint summary, sprint review,
  project board summary, GitHub project board, release notes from sprints, "what shipped this sprint",
  "generate release notes", "sprint report", or wants to compile documentation from completed sprint items.
@@ -37,7 +38,7 @@ The skill executes in 7 phases. Run them sequentially:
 3. **Deep-Read Completed Items** — For each completed item, read associated repo docs, PRs, commits
 4. **Evaluate Contributors** — Score engineers for Lead Engineer & MVP recognition
 5. **Compile Per-Repo Release Notes** — Generate separate markdown for each repository
-6. **Publish to Respective Repos** — Push each markdown file to its corresponding repo
+6. **Publish to Respective Repos** — Create or update a GitHub Release per repo with the markdown as the release body
 7. **Post to Project Issue** (Optional) — Comment on a designated issue with summary links
 
 ## Phase 1: Discover Sprint
@@ -71,7 +72,7 @@ Separate items into:
 **Group by Repository:**
 - For each completed item, identify its linked repository (from the project item's field or linked PR)
 - Create a map: `Map<repo_name, List<completed_items>>`
-- Each repo will get its own release notes file
+- Each repo will get its own GitHub Release (same sprint markdown as the release `body`)
 
 Also extract metadata:
 - Sprint name/number from the iteration field
@@ -138,12 +139,12 @@ If scores are very close (within 10%), note both contributors.
 
 ## Phase 5: Compile Per-Repo Release Notes
 
-For each repository group, generate a separate release notes file using the template below.
+For each repository group, generate a separate release notes document using the template below (this becomes the GitHub Release body).
 
 **Repository Mapping:**
 - Collect all unique repo names from completed items
 - For each repo, filter its completed items
-- Generate one markdown file per repo
+- Generate one markdown document per repo
 
 Use the exact template below. Replace all `[placeholders]` with real data. If a section has no items, write "No changes this sprint." instead of removing the section.
 
@@ -187,30 +188,64 @@ Use the exact template below. Replace all `[placeholders]` with real data. If a 
 *Generated from GitHub Project Board - Sprint [sprint_name]*
 ```
 
-## Phase 6: Publish to Respective Repos
+## Phase 6: Publish to Respective Repos (GitHub Releases)
 
-For each repository that had completed items, push its release notes file to that repo:
+For each repository that had completed items, publish the sprint markdown as that repo’s **Release** (the Releases page / `releases/latest` UI), not as a file in the tree.
 
-**Step 6.1**: Determine the file path per repo:
+**Step 6.1**: Derive the release **tag** and **name** from the sprint (aligned with Phase 2):
+- **Tag name** and **release name**: `v1.[sprint_number].0` (same as the Version line in the template)
+
+**Step 6.2**: Resolve whether a release for that tag already exists:
 ```
-docs/sprint-release-notes/sprint-[sprint_number]-[repo_name].md
+GET /repos/{owner}/{repo}/releases/tags/v1.[sprint_number].0
+```
+- If the response is **404**, create a new release (Step 6.3).
+- If the response includes a release **`id`**, update it (Step 6.4).
+
+**Step 6.3**: Create a new release (creates the tag on the default branch if the tag does not exist yet):
+```
+POST /repos/{owner}/{repo}/releases
+```
+JSON body (minimal):
+- `tag_name`: `v1.[sprint_number].0`
+- `target_commitish`: the repo’s **default branch** (e.g. `main`)
+- `name`: same as `tag_name` (or a short sprint title if the user prefers)
+- `body`: the full markdown from Phase 5
+- `draft`: `false`
+- `prerelease`: `false`
+
+**Step 6.4**: Update an existing release’s notes and title flags:
+```
+PATCH /repos/{owner}/{repo}/releases/{release_id}
 ```
 
-**Step 6.2**: Use the GitHub Contents API to create the file:
+Example (curl; use the user’s PAT and API version header as appropriate):
+```bash
+curl -L -X PATCH \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-GitHub-Api-Version: 2026-03-10" \
+  https://api.github.com/repos/OWNER/REPO/releases/RELEASE_ID \
+  -d '{
+    "name": "v1.2.3",
+    "body": "Updated release notes",
+    "draft": false,
+    "prerelease": false
+  }'
 ```
-PUT /repos/{owner}/{repo}/contents/docs/sprint-release-notes/{filename}
-```
-- Content must be base64 encoded
-- Commit message: `docs: Sprint [sprint_number] release notes - [repo_name]`
-- Branch: `main` (or the repo's default branch)
 
-**Step 6.3**: Track all published files for the summary.
+**Step 6.5**: Track each repo’s **`html_url`** from the create/update response for Phase 7 and the user summary.
+
+**Notes:**
+- The PAT needs permission to create releases and push tags (typically **`repo`** on private repos).
+- Prefer **`Authorization: Bearer`** with **`Accept: application/vnd.github+json`** for REST calls; include **`X-GitHub-Api-Version`** when using calendar-dated API versions.
+- If a repo must not auto-create tags, create the tag (or draft release) out of band and only **PATCH** the `body`.
 
 ## Phase 7: Post Summary to Project Issue (Optional)
 
 If the user specifies a **designated issue** to post the summary:
 
-**Step 7.1**: Collect all published file URLs.
+**Step 7.1**: Collect all published release URLs (`html_url` from each create/update response).
 
 **Step 7.2**: Use GitHub Issues API to add a comment:
 ```
@@ -221,12 +256,12 @@ POST /repos/{owner}/{repo}/issues/{issue_number}/comments
 ```markdown
 ## 🚀 Sprint [sprint_number] Release Notes Published
 
-Release notes have been generated and pushed to their respective repositories:
+Release notes have been published to each repository’s Releases:
 
-| Repository | Release Notes |
-|------------|----------------|
-| [repo_1] | [file_link_1] |
-| [repo_2] | [file_link_2] |
+| Repository | Release |
+|------------|---------|
+| [repo_1] | [release_link_1] |
+| [repo_2] | [release_link_2] |
 | ... | ... |
 
 ---
@@ -243,12 +278,12 @@ Release notes have been generated and pushed to their respective repositories:
 - **No linked PRs**: Some items may not have linked PRs. Use the item title/description as the best available context.
 - **No linked repo**: If an item has no repository link, use a default repo or ask the user for clarification.
 - **Large sprints**: If >50 items, batch API calls and summarize in groups to stay within context limits.
-- **Push failures**: If pushing to a repo fails, continue with other repos and report failures at the end.
+- **Release publish failures**: If creating or updating a release fails (permissions, tag policy, etc.), continue with other repos and report failures at the end.
 
 ## Important Notes
 
 - Always use the GitHub GraphQL API for project board queries (REST API doesn't support Projects v2 well)
-- Use the REST API for repo contents, PR details, and file commits
+- Use the REST API for repo contents (read), PR details, and **Releases** (create/update) for publishing
 - Cache repo READMEs — don't fetch the same README twice
 - The PAT token is sensitive — never log it, echo it, or include it in output files
 - All API calls go through `https://api.github.com` — ensure network access is available
