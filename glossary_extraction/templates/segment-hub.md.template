@@ -1,0 +1,15 @@
+---
+source: translation_scripts
+kind: segment
+segment: {{SEGMENT_KEY}}
+---
+
+# Segment — {{SEGMENT_KEY}}
+
+## Gloss
+
+- [[{{GLOSS_WIKILINK_TARGET}}|{{GLOSS_LABEL}}]]
+
+## UCCA
+
+- [[{{UCCA_WIKILINK_TARGET}}|{{UCCA_LABEL}}]]

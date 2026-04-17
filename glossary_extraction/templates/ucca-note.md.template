@@ -1,0 +1,12 @@
+---
+source: translation_scripts
+kind: ucca
+segment: {{SEGMENT_KEY}}
+source_file: {{FILE_STEM}}
+---
+
+# UCCA — {{SEGMENT_KEY}} — {{FILE_STEM}}
+
+→ [[{{GLOSS_WIKILINK_TARGET}}|Gloss]]
+
+<!-- Body: Layer 3 syntactic tree and narrative are produced by ucca_format / LLM; this template only shows frontmatter and cross-link shape. -->

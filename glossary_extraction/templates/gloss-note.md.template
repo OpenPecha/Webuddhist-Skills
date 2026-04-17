@@ -1,0 +1,25 @@
+---
+source: translation_scripts
+kind: gloss
+segment: {{SEGMENT_KEY}}
+source_file: {{FILE_STEM}}
+---
+
+# Gloss — {{SEGMENT_KEY}} — {{FILE_STEM}}
+
+→ [[{{UCCA_WIKILINK_TARGET}}|UCCA]]
+
+## Layer 4 — Semantic Gloss
+
+```gloss
+\gla {{GLA_LINE}}
+\glb {{GLB_LINE}}
+\glc {{GLC_LINE}}
+\ft {{FREE_TRANSLATION}}
+```
+
+**Source:** ({{SOURCE_CITATION}})
+
+## Gloss Divergences
+
+{{DIVERGENCES_MARKDOWN}}

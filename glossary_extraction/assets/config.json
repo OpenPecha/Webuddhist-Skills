@@ -1,0 +1,18 @@
+{
+  "skill": "glossary-extraction",
+  "entry_cli": "skill/glossary_extraction/scripts/run_glossary_to_obsidian.py",
+  "python_packages_required_from_repo_root": ["models", "config", "model"],
+  "output_relative_pattern": "{obsidian_subdir}/{vault_topic_path}/segment-{index}/",
+  "note_kinds": ["gloss", "ucca", "segment"],
+  "pecha_api_module": "skill/glossary_extraction/scripts/pecha_api.py",
+  "cli_flags_example": {
+    "edition_id": "REPLACE_WITH_EDITION_UUID",
+    "indices": "0,1,2",
+    "project_root": ".",
+    "obsidian_subdir": "obsidian",
+    "vault_topic_path": "2-authoritative-context/The Way of Boddhisattva",
+    "model": "gemini-2.5-flash",
+    "stem_suffix": "-full",
+    "dry_run": false
+  }
+}
